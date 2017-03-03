@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">BrnoMapbox</string>
+    <string name="access_token">pk.eyJ1IjoicHRydmNrIiwiYSI6ImNpeXd6YmVpYjAwMGIzMm8wNngwd2ZuMG8ifQ.DLzArbcOJSxclUEQrsf_iw</string>
+</resources>
