@@ -242,6 +242,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Create new helper
+        DatabasePlacesHelper dbHelper = new DatabasePlacesHelper(this);
+        // Get the database. If it does not exist, this is where it will
+        // also be created.
+       // SQLiteDatabase db = dbHelper.getWriteableDatabase();
+
 
         // Mapbox access token is configured here. This needs to be called either in your application
         // object or in the same activity which contains the mapview.
