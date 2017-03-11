@@ -1,5 +1,6 @@
 package com.genius.petr.brnomapbox;
 
+import com.google.gson.internal.Streams;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 
 /**
@@ -9,7 +10,8 @@ import com.mapbox.mapboxsdk.geometry.LatLng;
 public class Place {
     private final int id;
     private String name;
-    private PLACE_TYPE type;
+    //private PLACE_TYPE type;
+    private String type;
     private OpeningHours openingHours;
     private String description;
     private LatLng location;
@@ -19,11 +21,11 @@ public class Place {
         this.name = null;
         this.location = null;
     }
-    public PLACE_TYPE getType() {
+    public String getType() {
         return type;
     }
 
-    public void setType(PLACE_TYPE type) {
+    public void setType(String type) {
         this.type = type;
     }
 

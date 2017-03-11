@@ -2,34 +2,44 @@ package com.genius.petr.brnomapbox;
 import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.location.Location;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.util.Pair;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
+import com.loopj.android.http.AsyncHttpClient;
+import com.loopj.android.http.AsyncHttpResponseHandler;
+import com.loopj.android.http.RequestParams;
 import com.mapbox.mapboxsdk.MapboxAccountManager;
-import com.mapbox.mapboxsdk.annotations.BaseMarkerOptions;
 import com.mapbox.mapboxsdk.annotations.Icon;
 import com.mapbox.mapboxsdk.annotations.IconFactory;
 import com.mapbox.mapboxsdk.annotations.Marker;
-import com.mapbox.mapboxsdk.annotations.MarkerOptions;
 import com.mapbox.mapboxsdk.annotations.MarkerViewOptions;
 import com.mapbox.mapboxsdk.annotations.PolylineOptions;
 import com.mapbox.mapboxsdk.camera.CameraPosition;
@@ -40,19 +50,14 @@ import com.mapbox.mapboxsdk.location.LocationServices;
 import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
-import com.mapbox.mapboxsdk.style.layers.Layer;
-import com.mapbox.mapboxsdk.style.layers.LineLayer;
-import com.mapbox.mapboxsdk.style.layers.Property;
-import com.mapbox.mapboxsdk.style.sources.VectorSource;
-import com.mapbox.services.commons.geojson.Point;
 import com.mapbox.services.commons.utils.TextUtils;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
-import org.w3c.dom.Text;
 
-import static com.mapbox.mapboxsdk.style.layers.Property.NONE;
-import static com.mapbox.mapboxsdk.style.layers.Property.VISIBLE;
+import cz.msebera.android.httpclient.Header;
+
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.lineColor;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.lineWidth;
 import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.visibility;
@@ -61,8 +66,10 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -74,13 +81,26 @@ public class MainActivity extends AppCompatActivity {
     private boolean markersVisible;
     private ArrayList<MarkerViewOptions> markersRestaurant = new ArrayList<>();
     private ArrayList<MarkerViewOptions> markersBar = new ArrayList<>();
+    private ArrayList<MarkerViewOptions> markers = new ArrayList<>();
+    private HashMap<Integer, MarkerViewOptions> markersMap = new HashMap<>();
+
     private Marker activeMarker = null;
     private Icon activeMarkerNormalIcon; //just for convenience, not that anything of what I'm doing here was really convenient
     private Icon restaurantsIcon;
     private Icon restaurantsActiveIcon;
     private Icon barsIcon;
     private Icon barsActiveIcon;
+    private Icon databaseIcon;
+    private Icon databaseActiveIcon;
 
+    private static final String TAG_SUCCESS = "success";
+    private static final String TAG_MARKERS = "markers";
+    private static final String TAG_ID = "id";
+    private static final String TAG_NAME = "name";
+    private static final String TAG_LAT = "lat";
+    private static final String TAG_LNG = "lng";
+    private static final String TAG_TYPE = "type";
+    private static final String TAG_DESCRIPTION = "description";
 
     private CheckBox checkBoxFilters;
     boolean displayFilters;
@@ -92,6 +112,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout filterButtonsLayout;
     private int filtersButtonsLayoutWidth = 60; //in dp // TODO: 15. 2. 2017 THIS SHOULD NOT BE HARDCODED
 
+
     //markerPopupStuff
     private LinearLayout markerPopupLayout;
     private TextView markerPopupName;
@@ -100,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView markerPopupAddress;
     private TextView markerPopupWeb;
 
+    private static Context contextOfApplication;
 
 
     private List<LatLng> circuit;
@@ -188,6 +210,58 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+    protected ArrayList<MarkerViewOptions> loadMarkers(){
+        // Create new helper
+        DatabasePlacesHelper dbHelper = new DatabasePlacesHelper(this);
+        // Get the database. If it does not exist, this is where it will
+        // also be created.
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+
+        ArrayList<MarkerViewOptions> markers = new ArrayList<>();
+        Log.d("Debug", "Loading markers");
+        String[] projection = {
+                DatabasePlacesContract.PlaceEntry._ID,
+                DatabasePlacesContract.PlaceEntry.COLUMN_NAME_NAME,
+                DatabasePlacesContract.PlaceEntry.COLUMN_NAME_TYPE,
+                DatabasePlacesContract.PlaceEntry.COLUMN_NAME_LAT,
+                DatabasePlacesContract.PlaceEntry.COLUMN_NAME_LNG,
+                DatabasePlacesContract.PlaceEntry.COLUMN_NAME_DESCRIPTION
+        };
+
+        Cursor cursor = db.query(DatabasePlacesContract.PlaceEntry.TABLE_NAME,
+                projection,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        List itemIds = new ArrayList<>();
+        while(cursor.moveToNext()) {
+            Log.d("Debug","Reading");
+            //long itemId = cursor.getLong(cursor.getColumnIndexOrThrow(DatabasePlacesContract.PlaceEntry._ID));
+            //tady si proste musim pamatovat, v jakym jsou poradi...
+            int id = cursor.getInt(0);
+            String name = cursor.getString(1);
+            String type = cursor.getString(2);
+            double lat = cursor.getDouble(3);
+            double lng = cursor.getDouble(4);
+            String description = cursor.getString(5);
+
+            MarkerViewOptions m = new MarkerViewOptions()
+                    .position(new LatLng(lat,lng))
+                    .title(name)
+                    .snippet(type)
+                    .icon(databaseIcon)
+                    .anchor(0.5f,1.0f);
+
+            markers.add(m);
+        }
+        cursor.close();
+        dbHelper.close();
+        return markers;
+    }
+
     //TODO read type from JSON
     protected ArrayList<MarkerViewOptions> loadFeatures(String jsonResource, Icon icon, String type){
         ArrayList<MarkerViewOptions> markers = new ArrayList<>();
@@ -220,8 +294,6 @@ public class MainActivity extends AppCompatActivity {
         finally{
             return markers;
         }
-
-
     }
 
     private void initIcons() {
@@ -236,35 +308,177 @@ public class MainActivity extends AppCompatActivity {
         iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.bar);
         barsActiveIcon = iconFactory.fromDrawable(iconDrawable);
 
+        iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.database);
+        databaseIcon = iconFactory.fromDrawable(iconDrawable);
+        iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.database);
+        databaseActiveIcon = iconFactory.fromDrawable(iconDrawable);
     }
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    private void initMarkers(){
+        //markersRestaurant =  loadFeatures("restaurants", restaurantsIcon, "Restaurant");
+        //markersBar = loadFeatures("bars", barsIcon, "Bar");
+        markers = loadMarkers();
 
-        // Create new helper
-        DatabasePlacesHelper dbHelper = new DatabasePlacesHelper(this);
-        // Get the database. If it does not exist, this is where it will
-        // also be created.
-       // SQLiteDatabase db = dbHelper.getWriteableDatabase();
+        Log.d("Debug", "Markers loaded: " + Integer.toString(markers.size()));
+        //new LoadMarkersMySQL().execute();
+
+        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(contextOfApplication);
+        String lastUpdate = sharedPref.getString(getString(R.string.last_update_tag), "0");
+
+        final List<Place> places = new ArrayList<Place>();
+        AsyncHttpClient client = new AsyncHttpClient();
+        String url_all_markers = getString(R.string.server_ip) + getString(R.string.script_url);
+
+        RequestParams params = new RequestParams();
+        params.put("lastupdate", Integer.parseInt(lastUpdate));
+        //params.put("lastupdate", 156258);
+
+        client.get(url_all_markers, params, new AsyncHttpResponseHandler() {
+            @Override
+            public void onSuccess(int statusCode, Header[] headers, byte[] response) {
+                try {
+                    String str = new String(response, "UTF-8");
+                    // Create JSON object out of the response sent by getdbrowcount.php
+                    JSONObject json = new JSONObject(str);
+                    Log.d("Debug", json.toString());
 
 
-        // Mapbox access token is configured here. This needs to be called either in your application
-        // object or in the same activity which contains the mapview.
-        MapboxAccountManager.start(this, getString(R.string.access_token));
+                    int success = json.getInt(TAG_SUCCESS);
 
-        // This contains the MapView in XML and needs to be called after the account manager
-        setContentView(R.layout.activity_location_basic);
+                    if (success == 1) {
+                        // products found
+                        // Getting Array of Products
+                        JSONArray markersJSON = json.getJSONArray(TAG_MARKERS);
 
-        locationServices = LocationServices.getLocationServices(MainActivity.this);
+                        Long timeStampLong = System.currentTimeMillis()/1000;
+                        String timeStamp = timeStampLong.toString();
+                        SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(contextOfApplication);
+                        SharedPreferences.Editor editor = sharedPref.edit();
+                        editor.putString(getString(R.string.last_update_tag), timeStamp);
+                        editor.commit();
 
+                        // looping through All Products
+                        for (int i = 0; i < markersJSON.length(); i++) {
+                            JSONObject c = markersJSON.getJSONObject(i);
 
+                            // Storing each json item in variable
+                            int id = c.getInt(TAG_ID);
+                            String name = c.getString(TAG_NAME);
+                            String type = c.getString(TAG_TYPE);
+                            double lat = c.getDouble(TAG_LAT);
+                            double lng = c.getDouble(TAG_LNG);
+                            String description = c.getString(TAG_DESCRIPTION);
+
+                            Place place = new Place(id);
+                            place.setName(name);
+                            place.setType(type);
+                            place.setLocation(lat, lng);
+                            place.setDescription(description);
+                            places.add(place);
+                        }
+                            DatabasePlacesHelper dbHelper = new DatabasePlacesHelper(contextOfApplication);
+                            // Get the database. If it does not exist, this is where it will
+                            // also be created.
+                            for (Place p : places){
+                                SQLiteDatabase db = dbHelper.getWritableDatabase();
+                                ContentValues values = new ContentValues();
+                                values.put(DatabasePlacesContract.PlaceEntry.COLUMN_NAME_NAME, p.getName());
+                                values.put(DatabasePlacesContract.PlaceEntry.COLUMN_NAME_TYPE, p.getType());
+                                values.put(DatabasePlacesContract.PlaceEntry.COLUMN_NAME_LAT, p.getLocation().getLatitude());
+                                values.put(DatabasePlacesContract.PlaceEntry.COLUMN_NAME_LNG, p.getLocation().getLongitude());
+                                values.put(DatabasePlacesContract.PlaceEntry.COLUMN_NAME_DESCRIPTION, p.getDescription());
+                                long newRowId = db.insert(DatabasePlacesContract.PlaceEntry.TABLE_NAME, null, values);
+                            }
+
+                            dbHelper.close();
+                            markers = loadMarkers();
+                            runOnUiThread(new Runnable() {
+                                public void run() {
+                                    updateMarkers();
+                                }
+                            });
+
+                    } else {
+                        Log.d("Debug", "MySQL success = 0");
+                    }
+
+                } catch (JSONException | UnsupportedEncodingException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            }
+
+            @Override
+            public void onFailure(int statusCode, Header[] headers, byte[] errorResponse , Throwable error) {
+                // TODO Auto-generated method stub
+                /*
+                try {
+                    Log.e("Connection", new String(errorResponse, "UTF-8"));
+                } catch (UnsupportedEncodingException e) {
+
+                }*/
+            }
+        });
+    }
+
+    void findViewsById() {
         markerPopupLayout = (LinearLayout) findViewById(R.id.markerPopupLayout);
         markerPopupName = (TextView) findViewById(R.id.markerPopupName);
         markerPopupType = (TextView) findViewById(R.id.markerPopupType);
         markerPopupOpen = (TextView) findViewById(R.id.markerPopupOpen);
         markerPopupAddress = (TextView) findViewById(R.id.markerPopupAddress);
         markerPopupWeb = (TextView) findViewById(R.id.markerPopupWeb);
+        mapView = (MapView) findViewById(R.id.mapView);
+        filtersLayout = (LinearLayout) findViewById(R.id.filtersLayout);
+        filterButtonsLayout = (LinearLayout) findViewById(R.id.filterButtonsLayout);
+        checkBoxFilters = (CheckBox) findViewById(R.id.checkBoxFilters);
+        checkBoxRestaurants = (CheckBox) findViewById(R.id.checkBoxRestaurants);
+        checkBoxPubs = (CheckBox) findViewById(R.id.checkBoxPubs);
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.action_categories:
+                Intent intent = new Intent(this, PlacesActivity.class);
+                startActivity(intent);
+
+                return true;
+
+            default:
+                // If we got here, the user's action was not recognized.
+                // Invoke the superclass to handle it.
+                return super.onOptionsItemSelected(item);
+
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // This contains the MapView in XML and needs to be called after the account manager
+        setContentView(R.layout.activity_location_basic);
+
+        contextOfApplication = getApplicationContext();
+
+        Toolbar myToolbar = (Toolbar) findViewById(R.id.app_toolbar);
+        setSupportActionBar(myToolbar);
+
+        // Mapbox access token is configured here. This needs to be called either in your application
+        // object or in the same activity which contains the mapview.
+        MapboxAccountManager.start(this, getString(R.string.access_token));
+
+
+
+        locationServices = LocationServices.getLocationServices(MainActivity.this);
+
+        this.findViewsById();
 
         /* Doesnt work TODO make it work
         markerPopupLayout.setOnFocusChangeListener(new View.OnFocusChangeListener() {
@@ -278,19 +492,14 @@ public class MainActivity extends AppCompatActivity {
         });
         */
 
-        mapView = (MapView) findViewById(R.id.mapView);
         mapView.onCreate(savedInstanceState);
         mapView.getMapAsync(new OnMapReadyCallback() {
             @Override
             public void onMapReady(MapboxMap mapboxMap) {
                 mapboxMap.setStyleUrl("mapbox://styles/ptrvck/ciz5ld1mw00c72sphhc35amyt");
-
-
-
                 mapboxMap.setOnCameraChangeListener(new MapboxMap.OnCameraChangeListener() {
                     @Override
                     public void onCameraChange(CameraPosition position) {
-
                         if(position.zoom < MARKERS_ZOOM_THRESHOLD && markersVisible){
                             toggleMarkers();
                         }
@@ -308,8 +517,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-                
-
                 mapboxMap.setOnMarkerClickListener(new MapboxMap.OnMarkerClickListener() {
                     //TODO create database, set marker title as database ID and get all data from there
                     @Override
@@ -324,22 +531,13 @@ public class MainActivity extends AppCompatActivity {
 
                 map = mapboxMap;
 
-
-
                 initIcons();
-                markersRestaurant =  loadFeatures("restaurants", restaurantsIcon, "Restaurant");
-                markersBar = loadFeatures("bars", barsIcon, "Bar");
+                initMarkers();
 
-
-                filtersLayout = (LinearLayout) findViewById(R.id.filtersLayout);
-                filterButtonsLayout = (LinearLayout) findViewById(R.id.filterButtonsLayout);
-
-                Resources r = getResources();
                 //convert from dp to px for animation purposes
+                Resources r = getResources();
                 filtersButtonsLayoutWidth = (int)TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, filtersButtonsLayoutWidth, r.getDisplayMetrics());
 
-
-                checkBoxFilters = (CheckBox) findViewById(R.id.checkBoxFilters);
                 displayFilters = checkBoxFilters.isChecked();
 
                 if (!displayFilters) {
@@ -353,10 +551,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-
-                checkBoxRestaurants = (CheckBox) findViewById(R.id.checkBoxRestaurants);
                 displayRestaurants = checkBoxRestaurants.isChecked();
-                checkBoxPubs = (CheckBox) findViewById(R.id.checkBoxPubs);
+
                 displayPubs = checkBoxPubs.isChecked();
 
                 checkBoxRestaurants.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -379,24 +575,7 @@ public class MainActivity extends AppCompatActivity {
                 if (markersVisible) {
                     updateMarkers();
                 }
-
-
-                /*
-                VectorSource circuitSource = new VectorSource("circuitSource", "mapbox://ptrvck.ciznv22tk00152wppyv0osiqn-1jb52");
-                map.addSource(circuitSource);
-
-                LineLayer circuitLayer = new LineLayer("circuit", "circuitSource");
-                circuitLayer.setSourceLayer("");
-                circuitLayer.setProperties(visibility(VISIBLE),
-                        lineWidth(5f),
-                        lineColor(Color.argb(1, 55, 148, 179)));
-
-                map.addLayer(circuitLayer);
-
-                //LineLayer circuit = new LineLayer("circuitSource", "mapbox://ptrvck.ciznv22tk00152wppyv0osiqn-1jb52");
-*/
                 new DrawGeoJson().execute();
-
             }
         });
 
@@ -470,8 +649,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateMarkers() {
+        map.clear();
+        drawCircuit();
+        map.addMarkerViews(markers);
+
         //this is stupid workaround
         //TODO find better solution
+        /*
         markerPopupLayout.setVisibility(View.INVISIBLE);
         if (activeMarker!=null) {
             updateActiveMarker(null);
@@ -489,11 +673,15 @@ public class MainActivity extends AppCompatActivity {
             if (displayPubs) {
                 map.addMarkerViews(markersBar);
             }
+
+            map.addMarkerViews(markers);
         }
         else {
             map.clear();
             drawCircuit();
+            map.addMarkerViews(markers);
         }
+        */
     }
 
     private void drawCircuit() {
@@ -502,8 +690,10 @@ public class MainActivity extends AppCompatActivity {
             .title("AA")
         );
 
-        if (circuit == null || circuit.size() == 0)
+        if (circuit == null || circuit.size() == 0) {
+            Log.d("Debug","circuit null");
             return;
+        }
         if (circuitComplete != null && circuitRemaining != null) {
             map.addPolyline(new PolylineOptions()
                     .addAll(circuitComplete)
@@ -667,7 +857,116 @@ public class MainActivity extends AppCompatActivity {
             circuitRemaining = divided.second;
 
             circuit = points;
-            drawCircuit();
         }
+    }
+
+    class LoadMarkersMySQL extends AsyncTask<String, Void, List<Place>> {
+
+
+
+        /**
+         * getting All products from url
+         * */
+        protected List<Place> doInBackground(String... args) {
+            final List<Place> places = new ArrayList<Place>();
+            AsyncHttpClient client = new AsyncHttpClient();
+            String url_all_markers = getString(R.string.server_ip) + getString(R.string.script_url);
+            client.get(url_all_markers, new AsyncHttpResponseHandler() {
+                @Override
+                public void onSuccess(int statusCode, Header[] headers, byte[] response) {
+                    try {
+                        String str = new String(response, "UTF-8");
+                        // Create JSON object out of the response sent by getdbrowcount.php
+                        JSONObject json = new JSONObject(str);
+                        Log.d("Debug", "Connected");
+                        if (json == null){
+                            Log.d("Debug", "Screwed");
+                        }else {
+                            // Check your log cat for JSON reponse
+                            Log.d("Debug", json.toString());
+                        }
+
+                        int success = json.getInt(TAG_SUCCESS);
+
+                        if (success == 1) {
+                            // products found
+                            // Getting Array of Products
+                            JSONArray markersJSON = json.getJSONArray(TAG_MARKERS);
+
+
+                            // looping through All Products
+                            for (int i = 0; i < markersJSON.length(); i++) {
+                                JSONObject c = markersJSON.getJSONObject(i);
+
+                                // Storing each json item in variable
+                                int id = c.getInt(TAG_ID);
+                                String name = c.getString(TAG_NAME);
+                                double lat = c.getDouble(TAG_LAT);
+                                double lng = c.getDouble(TAG_LNG);
+
+                                Place place = new Place(id);
+                                place.setName(name);
+                                place.setLocation(lat,lng);
+                                places.add(place);
+                            }
+                        } else {
+                            // no products found
+                            // Launch Add New product Activity
+                        /*
+                        Intent i = new Intent(getApplicationContext(),
+                                NewProductActivity.class);
+                        // Closing all previous activities
+                        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                        startActivity(i);
+                        */
+                        }
+
+                    } catch (JSONException | UnsupportedEncodingException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    }
+                }
+
+                @Override
+                public void onFailure(int statusCode, Header[] headers, byte[] errorResponse , Throwable error) {
+                    // TODO Auto-generated method stub
+                    try {
+                        Log.e("Connection", new String(errorResponse, "UTF-8"));
+                    } catch (UnsupportedEncodingException e) {
+
+                    }
+                }
+            });
+
+            return places;
+        }
+
+        /**
+         * After completing background task Dismiss the progress dialog
+         * **/
+        protected void onPostExecute(List<Place> places) {
+            // dismiss the dialog after getting all products
+            // pDialog.dismiss();
+            // updating UI from Background Thread
+            Log.d("Debug", "On post execute");
+            markers.clear();
+            for (Place p : places){
+
+                    markers.add(new MarkerViewOptions()
+                            .position(p.getLocation())
+                            .title(p.getName())
+                            .snippet("database")
+                            .icon(databaseIcon)
+                            .anchor(0.5f,1.0f));
+            }
+
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    updateMarkers();
+                }
+            });
+
+        }
+
     }
 }

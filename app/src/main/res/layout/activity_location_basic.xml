@@ -10,6 +10,8 @@
     android:focusableInTouchMode="true"
     tools:context=".MainActivity">
 
+
+
     <com.mapbox.mapboxsdk.maps.MapView
         android:id="@+id/mapView"
         android:layout_width="match_parent"
@@ -27,7 +29,7 @@
         android:layout_margin="16dp"
         app:srcCompat="@drawable/ic_my_location_24dp"
         tools:ignore="VectorDrawableCompat"
-        app:backgroundTint="@color/colorAccent"/>
+        app:backgroundTint="@color/colorPrimary"/>
 
 
     <LinearLayout
@@ -153,5 +155,13 @@
         </LinearLayout>
     </LinearLayout>
 
+    <android.support.v7.widget.Toolbar
+        android:id="@+id/app_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorPrimaryDark"
+        android:elevation="4dp"
+        android:theme="@style/ThemeOverlay.AppCompat.ActionBar"
+        app:popupTheme="@style/ThemeOverlay.AppCompat.Light"/>
 
 </android.support.design.widget.CoordinatorLayout>

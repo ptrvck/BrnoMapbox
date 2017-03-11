@@ -1,4 +1,19 @@
 <resources>
     <string name="app_name">BrnoMapbox</string>
     <string name="access_token">pk.eyJ1IjoicHRydmNrIiwiYSI6ImNpeXd6YmVpYjAwMGIzMm8wNngwd2ZuMG8ifQ.DLzArbcOJSxclUEQrsf_iw</string>
+    <string name="server_ip">http://192.168.11.14</string>
+    <string name="script_url">/brno/get_all_markers.php</string>
+    <string name="last_update_tag">LAST_UPDATE</string>
+    <string name="action_categories">categories</string>
+    <string name="title_activity_places_list">Places</string>
+    <string name="action_settings">Settings</string>
+    <string name="section_format">Hello World from section: %1$d</string>
+    <string name="title_activity_places">PlacesActivity</string>
+
+    <!-- TODO: Remove or change this placeholder text -->
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="dummy">DUMMY</string>
+    <string name="first">first</string>
+    <string name="last">last</string>
+    <string name="hello_world">hello</string>
 </resources>
