@@ -35,10 +35,10 @@
     <LinearLayout
         android:id="@+id/markerPopupLayout"
         android:layout_width="match_parent"
-        android:layout_height="200dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:focusableInTouchMode="true"
-        android:visibility="gone">
+        android:visibility="visible">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -95,7 +95,17 @@
                 android:textColor="#FFFFFF"
                 android:textStyle="normal"
                 android:layout_marginTop="5dp"/>
-            <TextView
+            <ImageButton
+                android:id="@+id/navigationButton"
+                android:layout_height="50dp"
+                android:layout_width="50dp"
+                android:scaleType="centerInside"
+                android:padding="0dp"
+                android:layout_margin="0dp"
+                app:srcCompat="@drawable/navigate"
+                android:background="@color/transparent"/>
+
+            <!--<TextView
                 android:id="@+id/markerPopupWeb"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -105,7 +115,7 @@
                 android:textSize="20dp"
                 android:textColor="#FFFFFF"
                 android:textStyle="normal"
-                android:layout_marginTop="5dp"/>
+                android:layout_marginTop="5dp"/>-->
 
         </LinearLayout>
     </LinearLayout>
@@ -116,7 +126,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:layout_gravity="center_vertical|right">
-        <CheckBox
+        <android.support.v7.widget.AppCompatCheckBox
             android:id="@+id/checkBoxFilters"
             android:layout_height="50dp"
             android:layout_width="30dp"

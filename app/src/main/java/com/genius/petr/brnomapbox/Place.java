@@ -1,5 +1,8 @@
 package com.genius.petr.brnomapbox;
 
+import android.os.Parcel;
+import android.os.Parcelable;
+
 import com.google.gson.internal.Streams;
 import com.mapbox.mapboxsdk.geometry.LatLng;
 
@@ -7,12 +10,12 @@ import com.mapbox.mapboxsdk.geometry.LatLng;
  * Created by Petr on 3. 3. 2017.
  */
 
-public class Place {
+public class Place implements Parcelable{
     private final int id;
     private String name;
     //private PLACE_TYPE type;
     private String type;
-    private OpeningHours openingHours;
+    //private OpeningHours openingHours;
     private String description;
     private LatLng location;
 
@@ -21,6 +24,27 @@ public class Place {
         this.name = null;
         this.location = null;
     }
+
+    protected Place(Parcel in) {
+        id = in.readInt();
+        name = in.readString();
+        type = in.readString();
+        description = in.readString();
+        location = in.readParcelable(LatLng.class.getClassLoader());
+    }
+
+    public static final Creator<Place> CREATOR = new Creator<Place>() {
+        @Override
+        public Place createFromParcel(Parcel in) {
+            return new Place(in);
+        }
+
+        @Override
+        public Place[] newArray(int size) {
+            return new Place[size];
+        }
+    };
+
     public String getType() {
         return type;
     }
@@ -28,7 +52,7 @@ public class Place {
     public void setType(String type) {
         this.type = type;
     }
-
+/*
     public OpeningHours getOpeningHours() {
         return openingHours;
     }
@@ -36,7 +60,7 @@ public class Place {
     public void setOpeningHours(OpeningHours openingHours) {
         this.openingHours = openingHours;
     }
-
+*/
     public int getId() {
         return id;
     }
@@ -70,5 +94,19 @@ public class Place {
     }
 
     public boolean valid() {return ((location!=null) &&(name!=null));
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        dest.writeInt(id);
+        dest.writeString(name);
+        dest.writeString(type);
+        dest.writeString(description);
+        dest.writeParcelable(location, flags);
     }
 }

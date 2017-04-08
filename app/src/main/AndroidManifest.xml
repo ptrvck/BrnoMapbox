@@ -27,6 +27,14 @@
             android:name=".PlacesActivity"
             android:label="@string/title_activity_places"
             android:theme="@style/AppTheme"></activity>
+        <activity
+            android:name=".horsin.HorsinGameActivity"
+            android:label="@string/title_activity_game"
+            android:theme="@style/AppTheme"></activity>
+        <activity
+            android:name=".dickin.DickinGameActivity"
+            android:label="@string/title_activity_game"
+            android:theme="@style/AppTheme"></activity>
     </application>
 
 </manifest>

@@ -10,7 +10,10 @@ import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.PointF;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.location.Location;
 import android.os.AsyncTask;
@@ -18,21 +21,32 @@ import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
+import android.support.graphics.drawable.VectorDrawableCompat;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v4.util.Pair;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.app.AppCompatDelegate;
 import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.AutoCompleteTextView;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.genius.petr.brnomapbox.dickin.DickinGameActivity;
+import com.genius.petr.brnomapbox.horsin.HorsinGameActivity;
 import com.loopj.android.http.AsyncHttpClient;
 import com.loopj.android.http.AsyncHttpResponseHandler;
 import com.loopj.android.http.RequestParams;
@@ -41,6 +55,7 @@ import com.mapbox.mapboxsdk.annotations.Icon;
 import com.mapbox.mapboxsdk.annotations.IconFactory;
 import com.mapbox.mapboxsdk.annotations.Marker;
 import com.mapbox.mapboxsdk.annotations.MarkerViewOptions;
+import com.mapbox.mapboxsdk.annotations.Polyline;
 import com.mapbox.mapboxsdk.annotations.PolylineOptions;
 import com.mapbox.mapboxsdk.camera.CameraPosition;
 import com.mapbox.mapboxsdk.camera.CameraUpdateFactory;
@@ -50,17 +65,28 @@ import com.mapbox.mapboxsdk.location.LocationServices;
 import com.mapbox.mapboxsdk.maps.MapView;
 import com.mapbox.mapboxsdk.maps.MapboxMap;
 import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
+import com.mapbox.mapboxsdk.maps.Projection;
+import com.mapbox.mapboxsdk.style.layers.SymbolLayer;
+import com.mapbox.services.Constants;
+import com.mapbox.services.commons.ServicesException;
+import com.mapbox.services.commons.geojson.LineString;
+import com.mapbox.services.commons.geojson.Point;
+import com.mapbox.services.commons.models.Position;
 import com.mapbox.services.commons.utils.TextUtils;
+import com.mapbox.services.directions.v5.DirectionsCriteria;
+import com.mapbox.services.directions.v5.MapboxDirections;
+import com.mapbox.services.directions.v5.models.DirectionsResponse;
+import com.mapbox.services.directions.v5.models.DirectionsRoute;
+import com.mapbox.mapboxsdk.maps.OnMapReadyCallback;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import cz.msebera.android.httpclient.Header;
-
-import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.lineColor;
-import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.lineWidth;
-import static com.mapbox.mapboxsdk.style.layers.PropertyFactory.visibility;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -71,8 +97,12 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class MainActivity extends AppCompatActivity {
+    private PlacesManager placesManager;
+    private static boolean mySQLInit = true;
 
     private MapView mapView;
     private MapboxMap map;
@@ -84,14 +114,10 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<MarkerViewOptions> markers = new ArrayList<>();
     private HashMap<Integer, MarkerViewOptions> markersMap = new HashMap<>();
 
-    private Marker activeMarker = null;
-    private Icon activeMarkerNormalIcon; //just for convenience, not that anything of what I'm doing here was really convenient
-    private Icon restaurantsIcon;
-    private Icon restaurantsActiveIcon;
-    private Icon barsIcon;
-    private Icon barsActiveIcon;
-    private Icon databaseIcon;
-    private Icon databaseActiveIcon;
+    private Circuit circuit;
+
+    private DirectionsRoute currentRoute;
+
 
     private static final String TAG_SUCCESS = "success";
     private static final String TAG_MARKERS = "markers";
@@ -102,12 +128,14 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG_TYPE = "type";
     private static final String TAG_DESCRIPTION = "description";
 
+    private double lastZoom = 0;
+
+    private SymbolLayer bars;
+
     private CheckBox checkBoxFilters;
     boolean displayFilters;
     private CheckBox checkBoxRestaurants;
-    boolean displayRestaurants;
     private CheckBox checkBoxPubs;
-    boolean displayPubs;
     private LinearLayout filtersLayout;
     private LinearLayout filterButtonsLayout;
     private int filtersButtonsLayoutWidth = 60; //in dp // TODO: 15. 2. 2017 THIS SHOULD NOT BE HARDCODED
@@ -121,21 +149,26 @@ public class MainActivity extends AppCompatActivity {
     private TextView markerPopupAddress;
     private TextView markerPopupWeb;
 
+    private ImageButton navigationButton;
+
     private static Context contextOfApplication;
 
 
-    private List<LatLng> circuit;
-    private List<LatLng> circuitComplete;
-    private List<LatLng> circuitRemaining;
-
+    //private List<LatLng> circuit;
+    //private List<LatLng> circuitComplete;
+    //private List<LatLng> circuitRemaining;
 
     private static final int PERMISSIONS_LOCATION = 0;
     private static final int MARKERS_ZOOM_THRESHOLD = 16;
+
+    private Timer clusterTimer = new Timer();
 
 
     private Pair<List<LatLng>,List<LatLng>> dividePath(LatLng position, List<LatLng> path) {
         if (path.size()<=1)
             return null;
+
+
 
         List<LatLng> complete = new ArrayList<>();
         List<LatLng> remaining = new ArrayList<>();
@@ -210,6 +243,7 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
+    /*
     protected ArrayList<MarkerViewOptions> loadMarkers(){
         // Create new helper
         DatabasePlacesHelper dbHelper = new DatabasePlacesHelper(this);
@@ -261,7 +295,7 @@ public class MainActivity extends AppCompatActivity {
         dbHelper.close();
         return markers;
     }
-
+    */
     //TODO read type from JSON
     protected ArrayList<MarkerViewOptions> loadFeatures(String jsonResource, Icon icon, String type){
         ArrayList<MarkerViewOptions> markers = new ArrayList<>();
@@ -296,31 +330,9 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void initIcons() {
-        IconFactory iconFactory = IconFactory.getInstance(MainActivity.this);
-        Drawable iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.restaurant);
-        restaurantsIcon = iconFactory.fromDrawable(iconDrawable);
-        iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.restaurant_active);
-        restaurantsActiveIcon = iconFactory.fromDrawable(iconDrawable);
-
-        iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.bar);
-        barsIcon = iconFactory.fromDrawable(iconDrawable);
-        iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.bar);
-        barsActiveIcon = iconFactory.fromDrawable(iconDrawable);
-
-        iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.database);
-        databaseIcon = iconFactory.fromDrawable(iconDrawable);
-        iconDrawable = ContextCompat.getDrawable(MainActivity.this, R.drawable.database);
-        databaseActiveIcon = iconFactory.fromDrawable(iconDrawable);
-    }
 
     private void initMarkers(){
-        //markersRestaurant =  loadFeatures("restaurants", restaurantsIcon, "Restaurant");
-        //markersBar = loadFeatures("bars", barsIcon, "Bar");
-        markers = loadMarkers();
-
-        Log.d("Debug", "Markers loaded: " + Integer.toString(markers.size()));
-        //new LoadMarkersMySQL().execute();
+        Log.d("BrnoMarkersInit", "INSIDE");
 
         SharedPreferences sharedPref = PreferenceManager.getDefaultSharedPreferences(contextOfApplication);
         String lastUpdate = sharedPref.getString(getString(R.string.last_update_tag), "0");
@@ -331,16 +343,20 @@ public class MainActivity extends AppCompatActivity {
 
         RequestParams params = new RequestParams();
         params.put("lastupdate", Integer.parseInt(lastUpdate));
+        Log.d("BrnoMarkersInit", "lastupdate: " + Integer.parseInt(lastUpdate));
         //params.put("lastupdate", 156258);
 
         client.get(url_all_markers, params, new AsyncHttpResponseHandler() {
             @Override
             public void onSuccess(int statusCode, Header[] headers, byte[] response) {
                 try {
+                    Log.d("BrnoMarkersInit", "Success");
+                    Log.d("BrnoMarkersInit", response.toString());
                     String str = new String(response, "UTF-8");
+                    Log.d("BrnoMarkersInit", str);
                     // Create JSON object out of the response sent by getdbrowcount.php
                     JSONObject json = new JSONObject(str);
-                    Log.d("Debug", json.toString());
+                    Log.d("BrnoMarkersInit", json.toString());
 
 
                     int success = json.getInt(TAG_SUCCESS);
@@ -391,19 +407,23 @@ public class MainActivity extends AppCompatActivity {
                             }
 
                             dbHelper.close();
-                            markers = loadMarkers();
+                           // markers = loadMarkers();
                             runOnUiThread(new Runnable() {
                                 public void run() {
+                                    placesManager = new PlacesManager(contextOfApplication);
+                                    placesManager.cluster(map.getProjection());
                                     updateMarkers();
                                 }
                             });
 
                     } else {
-                        Log.d("Debug", "MySQL success = 0");
+                        Log.d("BrnoMarkersInit", "MySQL success = 0");
                     }
 
                 } catch (JSONException | UnsupportedEncodingException e) {
                     // TODO Auto-generated catch block
+                    Log.d("BrnoMarkersInit", "EXCEPTION");
+                    Log.d("BrnoMarkersInit", e.getMessage());
                     e.printStackTrace();
                 }
             }
@@ -411,6 +431,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onFailure(int statusCode, Header[] headers, byte[] errorResponse , Throwable error) {
                 // TODO Auto-generated method stub
+                Log.d("BrnoMarkersInit", "FAIL");
                 /*
                 try {
                     Log.e("Connection", new String(errorResponse, "UTF-8"));
@@ -427,19 +448,107 @@ public class MainActivity extends AppCompatActivity {
         markerPopupType = (TextView) findViewById(R.id.markerPopupType);
         markerPopupOpen = (TextView) findViewById(R.id.markerPopupOpen);
         markerPopupAddress = (TextView) findViewById(R.id.markerPopupAddress);
-        markerPopupWeb = (TextView) findViewById(R.id.markerPopupWeb);
+        //markerPopupWeb = (TextView) findViewById(R.id.markerPopupWeb);
         mapView = (MapView) findViewById(R.id.mapView);
         filtersLayout = (LinearLayout) findViewById(R.id.filtersLayout);
         filterButtonsLayout = (LinearLayout) findViewById(R.id.filterButtonsLayout);
         checkBoxFilters = (CheckBox) findViewById(R.id.checkBoxFilters);
         checkBoxRestaurants = (CheckBox) findViewById(R.id.checkBoxRestaurants);
         checkBoxPubs = (CheckBox) findViewById(R.id.checkBoxPubs);
+
+        navigationButton = (ImageButton) findViewById(R.id.navigationButton);
+        navigationButton.setOnClickListener( new View.OnClickListener() {
+
+            @Override
+            public void onClick(View v) {
+
+                Log.i("Navigation", "clicked");
+
+                //when the button is visible it should never be null, but...
+                Marker activeMarker = placesManager.getActiveMarker();
+                if (activeMarker == null) {
+                    Log.i("Navigation", "active null");
+                    return;
+                }
+
+                Location user = map.getMyLocation();
+
+                if (user == null) {
+                    Log.i("Navigation", "user null");
+                    return;
+                    //TODO: display message that location is unknown
+                }
+
+                Position current = Position.fromCoordinates(user.getLongitude(), user.getLatitude());
+
+                Position target = Position.fromCoordinates(activeMarker.getPosition().getLongitude(), activeMarker.getPosition().getLatitude());
+
+
+                // Get route from API
+                try {
+                    getRoute(current, target);
+                } catch (ServicesException servicesException) {
+                    Log.i("Navigation", "service exception");
+                    servicesException.printStackTrace();
+                }
+            }
+        });
     }
+
+    private void showMarkerPopup(Place place) {
+        markerPopupName.setText(place.getName());
+        markerPopupType.setText(place.getType());
+        //TODO
+        //markerPopupOpen.setText(place.getOpenToday());
+        //markerPopupAddress.setText(place.getAddress());
+        //markerPopupWeb.setText(place.getWeb());
+        markerPopupLayout.setVisibility(View.VISIBLE);
+        markerPopupLayout.requestFocus();
+    }
+
+    static {
+        AppCompatDelegate.setCompatVectorFromResourcesEnabled(true);
+    }
+
+
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.menu, menu);
-        return true;
+
+        View v = menu.findItem(R.id.action_search).getActionView();
+
+        AutoCompleteTextView searchView = ( AutoCompleteTextView ) v.findViewById(R.id.search_view);
+        searchView.setThreshold(1);
+        Log.i("Search", searchView.toString());
+
+        List<Place> places = placesManager.getPlaces().getAllPlaces();
+
+        PlaceAutocompleteAdapter adapter = new PlaceAutocompleteAdapter(this, R.layout.search_list_item, places);
+        searchView.setAdapter(adapter);
+        searchView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+
+            @Override
+            public void onItemClick(AdapterView<?> parent, View arg1, int position, long arg3) {
+                Object item = parent.getItemAtPosition(position);
+                Log.i("Search", Integer.toString(position));
+                InputMethodManager imm =(InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);
+                imm.hideSoftInputFromWindow(getWindow().getCurrentFocus().getWindowToken(), 0);
+                if (item instanceof Place){
+                    Place p = (Place) item;
+                    showMarkerPopup(p);
+                }
+            }
+        });
+
+        /*
+        List<String> names = placesManager.getPlaces().getPlacesNames();
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, R.layout.search_list_item, names);
+        searchView.setAdapter(adapter);
+        */
+        return super.onCreateOptionsMenu(menu);
+
     }
 
     @Override
@@ -447,10 +556,12 @@ public class MainActivity extends AppCompatActivity {
         switch (item.getItemId()) {
             case R.id.action_categories:
                 Intent intent = new Intent(this, PlacesActivity.class);
+                intent.putExtra("places", placesManager.getPlaces());
                 startActivity(intent);
 
                 return true;
-
+            case R.id.action_game:
+                startActivity(new Intent(this, DickinGameActivity.class));
             default:
                 // If we got here, the user's action was not recognized.
                 // Invoke the superclass to handle it.
@@ -459,13 +570,39 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+
+
+    //this is called when i get back from browsing markers
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+
+        int id = intent.getExtras().getInt("id");
+        MarkerViewOptions marker = placesManager.getMarker(id);
+        placesManager.updateActiveMarker(marker.getMarker());
+        showMarkerPopup(placesManager.getPlace(id));
+
+
+
+        map.moveCamera(CameraUpdateFactory.newCameraPosition(
+                new CameraPosition.Builder()
+                        .target(marker.getPosition())  // set the camera's center position
+                        .zoom(14)  // set the camera's zoom level
+                        .build()));
+    }
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+
         // This contains the MapView in XML and needs to be called after the account manager
         setContentView(R.layout.activity_location_basic);
 
         contextOfApplication = getApplicationContext();
+        placesManager = new PlacesManager(contextOfApplication);
 
         Toolbar myToolbar = (Toolbar) findViewById(R.id.app_toolbar);
         setSupportActionBar(myToolbar);
@@ -492,47 +629,113 @@ public class MainActivity extends AppCompatActivity {
         });
         */
 
+
         mapView.onCreate(savedInstanceState);
         mapView.getMapAsync(new OnMapReadyCallback() {
             @Override
-            public void onMapReady(MapboxMap mapboxMap) {
-                mapboxMap.setStyleUrl("mapbox://styles/ptrvck/ciz5ld1mw00c72sphhc35amyt");
+            public void onMapReady(final MapboxMap mapboxMap) {
+                mapboxMap.setStyleUrl("mapbox://styles/ptrvck/cj0zdc5wt001t2ro9vtelxd0m");
                 mapboxMap.setOnCameraChangeListener(new MapboxMap.OnCameraChangeListener() {
                     @Override
                     public void onCameraChange(CameraPosition position) {
+                        Log.i("MarkerPosition", "zoom: " + position.zoom);
+
                         if(position.zoom < MARKERS_ZOOM_THRESHOLD && markersVisible){
                             toggleMarkers();
                         }
                         if(position.zoom >= MARKERS_ZOOM_THRESHOLD && !markersVisible){
                             toggleMarkers();
                         }
+
+                        /*this is called all the time...
+                        first of all ensure it updates clusters only when zoom changes
+                         */
+
+                        if (position.zoom != lastZoom) {
+                            lastZoom = position.zoom;
+
+                            //we want to update clusters only when zooming finishes
+                            clusterTimer.cancel();
+                            clusterTimer = new Timer();
+                            clusterTimer.schedule(new TimerTask() {
+                                @Override
+                                public void run() {
+                                    placesManager.cluster(map.getProjection());
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            updateMarkers();
+                                        }
+                                    });
+
+                                }
+                            }, 500);
+
+
+                        }
+
                     }
                 });
+
+
 
                 mapboxMap.setOnMapClickListener(new MapboxMap.OnMapClickListener() {
                     @Override
                     public void onMapClick(@NonNull LatLng point) {
                         markerPopupLayout.setVisibility(View.INVISIBLE);
-                        updateActiveMarker(null);
+                        //updateActiveMarker(null);
+                        placesManager.deactivateActiveMarker();
                     }
                 });
+
+                mapboxMap.setOnMapLongClickListener(new MapboxMap.OnMapLongClickListener() {
+                    @Override
+                    public void onMapLongClick(@NonNull LatLng point) {
+                        circuit.update(point);
+                        //updateMarkers();
+                    }
+                });
+
 
                 mapboxMap.setOnMarkerClickListener(new MapboxMap.OnMarkerClickListener() {
                     //TODO create database, set marker title as database ID and get all data from there
                     @Override
                     public boolean onMarkerClick(final Marker marker) {
-                        markerPopupName.setText(marker.getTitle());
-                        markerPopupLayout.setVisibility(View.VISIBLE);
-                        markerPopupLayout.requestFocus();
-                        updateActiveMarker(marker);
+                        int id = Integer.parseInt(marker.getSnippet());
+
+                        Log.i("Cluster", Integer.toString(id));
+                        //cluster
+                        if (id == MyConstants.CLUSTER) {
+                            Place p = new Place(-1);
+
+
+
+                            p.setType("TODO");
+                            p.setName("Cluster");
+                            showMarkerPopup(p);
+                            return true;
+                        }
+
+                        Place p = placesManager.getPlace(id);
+
+                        //markerPopupName.setText(marker.getTitle());
+                        showMarkerPopup(p);
+                        placesManager.updateActiveMarker(marker);
+                        //updateActiveMarker(marker);
                         return true;
                     }
                 });
 
                 map = mapboxMap;
+                placesManager.cluster(map.getProjection());
 
-                initIcons();
-                initMarkers();
+
+                //initIcons();
+                Log.d("BrnoMarkersInit", "INIT INIT INIT");
+                if (mySQLInit) {
+                    initMarkers();
+                    mySQLInit = false;
+                }
 
                 //convert from dp to px for animation purposes
                 Resources r = getResources();
@@ -551,69 +754,57 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-                displayRestaurants = checkBoxRestaurants.isChecked();
-
-                displayPubs = checkBoxPubs.isChecked();
-
                 checkBoxRestaurants.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                     @Override
                     public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                        displayRestaurants = checkBoxRestaurants.isChecked();
+                        placesManager.toggleRestaurants();
                         updateMarkers();
                     }
                 });
                 checkBoxPubs.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                     @Override
                     public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                        displayPubs = checkBoxPubs.isChecked();
+                        placesManager.toggleBars();
                         updateMarkers();
                     }
                 });
 
+                /*
                 markersVisible = (mapboxMap.getCameraPosition().zoom >= MARKERS_ZOOM_THRESHOLD);
 
                 if (markersVisible) {
                     updateMarkers();
                 }
+                */
+
+
+
                 new DrawGeoJson().execute();
+                updateMarkers();
             }
         });
 
-
         floatingActionButton = (FloatingActionButton) findViewById(R.id.location_toggle_fab);
+        //testing button
         floatingActionButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 if (map != null) {
                     toggleGps(!map.isMyLocationEnabled());
+                    //printMarkers();
+                    //placesManager.cluster(map.getProjection());
+                   // updateMarkers();
                 }
             }
         });
-
     }
 
-    private void updateActiveMarker(Marker marker) {
-
-        if (activeMarker != null) {
-            activeMarker.setIcon(activeMarkerNormalIcon);
+    private void printMarkers(){
+        Projection projection = map.getProjection();
+        for (MarkerViewOptions m : placesManager.getMarkers()) {
+            PointF screenLocation = projection.toScreenLocation(m.getPosition());
+            Log.i("MarkerPosition", "x: " + Float.toString(screenLocation.x) + "y: " + Float.toString(screenLocation.y));
         }
-
-        activeMarker = marker;
-
-        if (marker == null)
-            return;
-
-        //switch on type, because i can't really extend Marker, because idiotic reason
-        String type = marker.getSnippet();
-        if (type.equals("Restaurant")){
-            activeMarkerNormalIcon = restaurantsIcon;
-            marker.setIcon(restaurantsActiveIcon);
-        } else if (type.equals("Bar")) {
-            activeMarkerNormalIcon = barsIcon;
-            marker.setIcon(barsActiveIcon);
-        }
-
-
     }
 
     private void toggleFilters(){
@@ -651,40 +842,138 @@ public class MainActivity extends AppCompatActivity {
     private void updateMarkers() {
         map.clear();
         drawCircuit();
-        map.addMarkerViews(markers);
-
-        //this is stupid workaround
-        //TODO find better solution
-        /*
+/*
         markerPopupLayout.setVisibility(View.INVISIBLE);
-        if (activeMarker!=null) {
-            updateActiveMarker(null);
-        }
+        map.addMarkerViews(placesManager.getMarkers());
+  */
 
-        if (markersVisible) {
+
+
+
+
+        /*
+        //if (markersVisible) {
+        if (true) {
             map.clear();
+
             drawCircuit();
+            map.addMarkerViews(placesManager.getDbMarkers());
 
 
             if (displayRestaurants) {
-                map.addMarkerViews(markersRestaurant);
+                map.addMarkerViews(placesManager.getRestaurantMarkers());
             }
 
             if (displayPubs) {
-                map.addMarkerViews(markersBar);
+                map.addMarkerViews(placesManager.getBarMarkers());
             }
-
-            map.addMarkerViews(markers);
         }
         else {
             map.clear();
             drawCircuit();
-            map.addMarkerViews(markers);
+            map.addMarkerViews(placesManager.getDbMarkers());
         }
         */
     }
 
+    private void getRoute(Position origin, Position destination) throws ServicesException {
+
+        MapboxDirections client = new MapboxDirections.Builder()
+                .setOrigin(origin)
+                .setDestination(destination)
+                .setProfile(DirectionsCriteria.PROFILE_WALKING)
+                .setAccessToken(MapboxAccountManager.getInstance().getAccessToken())
+                .build();
+
+        client.enqueueCall(new Callback<DirectionsResponse>() {
+            @Override
+            public void onResponse(Call<DirectionsResponse> call, Response<DirectionsResponse> response) {
+                // You can get the generic HTTP info about the response
+                Log.d("Navigation", "Response code: " + response.code());
+                if (response.body() == null) {
+                    Log.e("Navigation", "No routes found, make sure you set the right user and access token.");
+                    return;
+                } else if (response.body().getRoutes().size() < 1) {
+                    Log.e("Navigation", "No routes found");
+                    return;
+                }
+
+                // Print some info about the route
+                currentRoute = response.body().getRoutes().get(0);
+                Log.d("Navigation", "Distance: " + currentRoute.getDistance());
+                Toast.makeText(
+                        MainActivity.this,
+                        "Route is " + currentRoute.getDistance() + " meters long.",
+                        Toast.LENGTH_SHORT).show();
+
+                // Draw the route on the map
+                drawRoute(currentRoute);
+            }
+
+            @Override
+            public void onFailure(Call<DirectionsResponse> call, Throwable throwable) {
+                Log.e("Navigation", "Error: " + throwable.getMessage());
+                Toast.makeText(MainActivity.this, "Error: " + throwable.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void drawRoute(DirectionsRoute route) {
+        // Convert LineString coordinates into LatLng[]
+        LineString lineString = LineString.fromPolyline(route.getGeometry(), Constants.OSRM_PRECISION_V5);
+        List<Position> coordinates = lineString.getCoordinates();
+        LatLng[] points = new LatLng[coordinates.size()];
+        for (int i = 0; i < coordinates.size(); i++) {
+            points[i] = new LatLng(
+                    coordinates.get(i).getLatitude(),
+                    coordinates.get(i).getLongitude());
+        }
+
+        // Draw Points on MapView
+        map.addPolyline(new PolylineOptions()
+                .add(points)
+                .color(Color.parseColor("#009688"))
+                .width(5));
+    }
+
     private void drawCircuit() {
+        if(circuit == null) {
+            return;
+        }
+
+        map.addMarkerViews(circuit.getMarkers());
+
+        map.addPolyline(new PolylineOptions()
+                .addAll(circuit.getPath())
+                .color(Color.parseColor("#ff0000"))
+                .width(5));
+
+        /*
+        PolylineOptions p = new PolylineOptions();
+        Polyline line = p.getPolyline();
+*/
+
+        /*
+        for (LatLng position : circuit.getPath()) {
+
+            map.addMarker(new MarkerViewOptions()
+                    .position(position)
+                    .title("AA")
+            );
+        }
+        */
+
+        List<PathSegment> visited = circuit.getVisitedSegments();
+        Log.i("Circuit","segments: "+circuit.getVisitedSegments().size());
+
+        for (PathSegment segment : visited) {
+            map.addPolyline(new PolylineOptions()
+                    .addAll(segment.getPath())
+                    .color(Color.parseColor("#00FFFF"))
+                    .width(5));
+        }
+
+        /*
         map.addMarker(new MarkerViewOptions()
                 .position(new LatLng(49.1972,16.6038))
             .title("AA")
@@ -709,6 +998,7 @@ public class MainActivity extends AppCompatActivity {
                     .color(Color.parseColor("#3bb2d0"))
                     .width(5));
         }
+        */
 
     }
 
@@ -844,12 +1134,40 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPostExecute(List<LatLng> points) {
             super.onPostExecute(points);
+            List<Place> stops = new ArrayList<>();
+            Place p = new Place(924);
+            p.setName("Turn 01");
+            p.setType("Circuit stop");
+            p.setLocation(points.get(8));
+            stops.add(p);
+
+            p = new Place(925);
+            p.setName("Turn 02");
+            p.setType("Circuit stop");
+            p.setLocation(points.get(9));
+            stops.add(p);
+
+            p = new Place(926);
+            p.setName("Turn 03");
+            p.setType("Circuit stop");
+            p.setLocation(points.get(14));
+            stops.add(p);
+
+
+            circuit = new Circuit(points, stops, contextOfApplication);
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    updateMarkers();
+                }
+            });
 
             /*
         16.603716,
         49.194988
      */
             //this should probably be async (TODO)
+            /*
             Pair<List<LatLng>,List<LatLng>> divided = dividePath(new LatLng(49.1972,16.6038), points);
 
 
@@ -857,6 +1175,13 @@ public class MainActivity extends AppCompatActivity {
             circuitRemaining = divided.second;
 
             circuit = points;
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    updateMarkers();
+                }
+            });
+            */
         }
     }
 
@@ -941,9 +1266,7 @@ public class MainActivity extends AppCompatActivity {
             return places;
         }
 
-        /**
-         * After completing background task Dismiss the progress dialog
-         * **/
+        /*
         protected void onPostExecute(List<Place> places) {
             // dismiss the dialog after getting all products
             // pDialog.dismiss();
@@ -967,6 +1290,6 @@ public class MainActivity extends AppCompatActivity {
             });
 
         }
-
+        */
     }
 }
